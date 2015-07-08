@@ -1,158 +1,199 @@
-/*
- * Copyright 2014 Ruediger Moeller.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
 package org.nustaq.serialization.util;
 
-import java.util.HashMap;
-
 /**
- * Date: 26.02.13
- * Time: 18:35
- * To change this template use File | Settings | File Templates.
+ * Created by ruedi on 15.06.2015.
  */
-public class FSTMap {
-    public static final int INIT_SIZ = 65536;
-    final int GAP = 4;
+public class FSTMap<K,V> {
 
-    Object keys[];
-    int hash[];
-    int siz = 0;
-    int collisionIndex;
-    int mask;
+    static int[] prim = FSTObject2IntMap.prim;
 
-    public FSTMap() {
-        allocWithSize(INIT_SIZ);
+    private static final int GROFAC = 2;
+
+    public static int adjustSize(int size) {
+        for (int i = 0; i < prim.length - 1; i++) {
+            if (size < prim[i]) {
+                return prim[i];
+            }
+        }
+        return size;
     }
 
-    // siz = power of 2
-    void allocWithSize(int siz) {
-        this.siz = siz;
-        int len = siz * GAP + (siz * GAP) / 2;
-        keys = new Object[len * 2];
-        hash = new int[len];
-        mask = siz - 1;
+    public Object mKeys[];
+    public Object mValues[];
+    public int mNumberOfElements;
+    FSTMap<K,V> next;
+    boolean checkClazzOnEquals = false;
+
+    public FSTMap(int initialSize) {
+        if (initialSize < 2) {
+            initialSize = 2;
+        }
+
+        initialSize = adjustSize(initialSize * 2);
+
+        mKeys = new Object[initialSize];
+        mValues = new Object[initialSize];
+        mNumberOfElements = 0;
     }
 
-    public Object get(Object key) {
-        final int hc = key.hashCode();
-        int hashIdx = (hc & mask) * GAP << 1;
-        int loopCnt = 0;
-        while (true) {
-            if (keys[hashIdx] == null) {
+    public int size() {
+        return mNumberOfElements + (next != null ? next.size() : 0);
+    }
+
+    final public void put(K key, V value) {
+        int hash = key.hashCode() & 0x7FFFFFFF;
+        putHash(key, value, hash, this);
+    }
+
+    final void putHash(K key, V value, int hash, FSTMap<K,V> parent) {
+        if (mNumberOfElements * GROFAC > mKeys.length) {
+            if (parent != null) {
+                if ((parent.mNumberOfElements + mNumberOfElements) * GROFAC > parent.mKeys.length) {
+                    parent.resize(parent.mKeys.length * GROFAC);
+                    parent.put(key, value);
+                    return;
+                } else {
+                    resize(mKeys.length * GROFAC);
+                }
+            } else {
+                resize(mKeys.length * GROFAC);
+            }
+        }
+
+        int idx = hash % mKeys.length;
+
+        if (mKeys[idx] == null) // new
+        {
+            mNumberOfElements++;
+            mValues[idx] = value;
+            mKeys[idx] = key;
+        } else if (mKeys[idx].equals(key) && (!checkClazzOnEquals || mKeys[idx].getClass() == key.getClass()))    // overwrite
+        {
+            mValues[idx] = value;
+        } else {
+            putNext(hash, key, value);
+        }
+    }
+
+    final K removeHash(K key, int hash) {
+        final int idx = hash % mKeys.length;
+
+        final Object mKey = mKeys[idx];
+        if (mKey == null) // not found
+        {
+//            hit++;
+            return null;
+        } else if (mKey.equals(key) && (!checkClazzOnEquals || mKeys[idx].getClass() == key.getClass()))  // found
+        {
+//            hit++;
+            K val = (K) mKeys[idx];
+            mValues[idx] = 0; mKeys[idx] = null;
+            mNumberOfElements--;
+            return val;
+        } else {
+            if (next == null) {
                 return null;
             }
-            final int hidx2 = hashIdx >>> 1;
-            if (hc == hash[hidx2]) {
-                if (keys[hashIdx].equals(key)) {
-                    return keys[hashIdx + 1];
-                } else { // collision, try next
-                    hashIdx += 2;
-                    loopCnt++;
-                    if (loopCnt == GAP) {
-                        hashIdx = siz * GAP;
-                    }
-                }
-            } else {
-                // collision, try next
-                hashIdx += 2;
-                loopCnt++;
-                if (loopCnt == GAP) {
-                    hashIdx = siz * GAP;
-                }
-            }
+//            miss++;
+            return next.removeHash(key, hash);
         }
     }
 
-    public void put(Object key, Object val) {
-        int hc = key.hashCode();
-        int hashIdx = (hc & mask) * GAP << 1;
-        int loopCnt = 0;
-        while (true) {
-            if (keys[hashIdx] == null) {
-                keys[hashIdx + 1] = val;
-                keys[hashIdx] = key;
-                hash[hashIdx / 2] = hc;
-                return;
+    final void putNext(final int hash, final K key, final V value) {
+        if (next == null) {
+            int newSiz = mNumberOfElements / 3;
+            next = new FSTMap<K,V>(newSiz);
+        }
+        next.putHash(key, value, hash, this);
+    }
+
+    final public V get(final K key) {
+        final int hash = key.hashCode() & 0x7FFFFFFF;
+        //return getHash(key,hash); inline =>
+        final int idx = hash % mKeys.length;
+
+        final Object mapsKey = mKeys[idx];
+        if (mapsKey == null) // not found
+        {
+            return null;
+        } else if (mapsKey.equals(key) && (!checkClazzOnEquals || mapsKey.getClass() == key.getClass()))  // found
+        {
+            return (V) mValues[idx];
+        } else {
+            if (next == null) {
+                return null;
             }
-            if (hc == hash[hashIdx / 2]) {
-                if (keys[hashIdx].equals(key)) {
-                    keys[hashIdx + 1] = val;
-                    return;
-                } else { // collision, try next
-                    hashIdx += 2;
-                    loopCnt++;
-                    if (loopCnt == GAP) {
-                        hashIdx = siz * GAP;
-                    }
-                }
-            } else {
-                // collision, try next
-                hashIdx += 2;
-                loopCnt++;
-                if (loopCnt == GAP) {
-                    hashIdx = siz * GAP;
-                }
+            V res = next.getHash(key, hash);
+            return res;
+        }
+        // <== inline
+    }
+
+    static int miss = 0;
+    static int hit = 0;
+
+    final V getHash(final K key, final int hash) {
+        final int idx = hash % mKeys.length;
+
+        final Object mapsKey = mKeys[idx];
+        if (mapsKey == null) // not found
+        {
+            return null;
+        } else if (mapsKey.equals(key) && (!checkClazzOnEquals || mapsKey.getClass() == key.getClass()))  // found
+        {
+            return (V) mValues[idx];
+        } else {
+            if (next == null) {
+                return null;
             }
+            V res = next.getHash(key, hash);
+            return res;
         }
     }
 
-    public static final int LOOP = 1000;
+    final void resize(int newSize) {
+        newSize = adjustSize(newSize);
+        Object[] oldTabKey = mKeys;
+        Object[] oldTabVal = mValues;
 
-    public static void main(String[] arg) {
-        int count = INIT_SIZ / 2;
-        FSTMap map = new FSTMap();
-        HashMap<Object, Integer> hm = new HashMap<Object, Integer>(INIT_SIZ);
-        Object obs[] = new Object[count];
-        Object obs1[] = new Object[count];
+        mKeys = new Object[newSize];
+        mValues = new Object[newSize];
+        mNumberOfElements = 0;
 
-        for (int i = 0; i < count; i++) {
-            obs[i] = "" + i;
-            obs1[i] = "POK" + i + "POK";
+        for (int n = 0; n < oldTabKey.length; n++) {
+            if (oldTabKey[n] != null) {
+                put((K) oldTabKey[n], (V) oldTabVal[n]);
+            }
         }
-
-        System.out.println("---");
-        long tim = System.currentTimeMillis();
-        for (int jj = 0; jj < LOOP; jj++)
-            for (int i = 0; i < count; i++) {
-                map.put(obs[i], obs1[i]);
-            }
-        System.out.println("fst add" + (System.currentTimeMillis() - tim));
-
-        tim = System.currentTimeMillis();
-        for (int jj = 0; jj < LOOP; jj++)
-            for (int i = 0; i < count; i++) {
-                hm.put(obs[i], i);
-            }
-        System.out.println("hmap add" + (System.currentTimeMillis() - tim));
-
-        tim = System.currentTimeMillis();
-        for (int jj = 0; jj < LOOP; jj++)
-            for (int i = 0; i < count; i++) {
-                if (map.get(obs[i]) == null) {
-                    System.out.println("bug " + i);
-                }
-            }
-        System.out.println("fst read " + (System.currentTimeMillis() - tim));
-
-        tim = System.currentTimeMillis();
-        for (int jj = 0; jj < LOOP; jj++)
-            for (int i = 0; i < count; i++) {
-                if (hm.get(obs[i]) == null) {
-                    System.out.println("bug " + i);
-                }
-            }
-        System.out.println("hmap read " + (System.currentTimeMillis() - tim));
+        if (next != null) {
+            FSTMap oldNext = next;
+            next = null;
+            oldNext.rePut(this);
+        }
     }
+
+    private void rePut(FSTMap<K,V> kfstObject2IntMap) {
+        for (int i = 0; i < mKeys.length; i++) {
+            Object mKey = mKeys[i];
+            if (mKey != null) {
+                kfstObject2IntMap.put((K) mKey, (V) mValues[i]);
+            }
+        }
+        if (next != null) {
+            next.rePut(kfstObject2IntMap);
+        }
+    }
+
+    public void clear() {
+        if (size() == 0) {
+            return;
+        }
+        FSTUtil.clear(mKeys);
+        FSTUtil.clear(mValues);
+        mNumberOfElements = 0;
+        if (next != null) {
+            next.clear();
+        }
+    }
+
 }

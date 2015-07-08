@@ -45,6 +45,10 @@ public class FSTMinBinDecoder implements FSTDecoder {
         this.conf = conf;
         input = new MBIn(null,0);
     }
+    @Override
+    public void setConf(FSTConfiguration conf) {
+        this.conf = conf;
+    }
 
     @Override
     public String readStringUTF() throws IOException {
@@ -132,6 +136,11 @@ public class FSTMinBinDecoder implements FSTDecoder {
     }
 
     @Override
+    public int readIntByte() throws IOException {
+        return (int) input.readInt();
+    }
+
+    @Override
     public long readFLong() throws IOException {
         return input.readInt();
     }
@@ -196,13 +205,14 @@ public class FSTMinBinDecoder implements FSTDecoder {
                 in.close();
                 input.setBuffer(buf, count);
             } catch (IOException e) {
-                throw FSTUtil.rethrow(e);
+                FSTUtil.<RuntimeException>rethrow(e);
             }            
         }
     }
 
     @Override
-    public void ensureReadAhead(int bytes) {
+    public int ensureReadAhead(int bytes) {
+        return 0;
     }
 
     @Override
@@ -266,10 +276,10 @@ public class FSTMinBinDecoder implements FSTDecoder {
 //                        return FSTObjectOutput.OBJECT;
 //                    } else
                     {
-                        lastDirectClass = conf.getClassRegistry().classForName(conf.getClassForCPName(cln));
+                        lastDirectClass = conf.getClassRegistry().classForName(conf.getClassForCPName(cln),conf);
                     }
                 } catch (ClassNotFoundException e) {
-                    throw FSTUtil.rethrow(e);
+                    FSTUtil.<RuntimeException>rethrow(e);
                 }
                 if ( lastDirectClass.isEnum() ) {
                     input.readInt(); // consume length of 1
@@ -304,14 +314,14 @@ public class FSTMinBinDecoder implements FSTDecoder {
     @Override
     public FSTClazzInfo readClass() throws IOException, ClassNotFoundException {
         if (lastDirectClass != null ) {
-            FSTClazzInfo clInfo = conf.getCLInfoRegistry().getCLInfo(lastDirectClass);
+            FSTClazzInfo clInfo = conf.getCLInfoRegistry().getCLInfo(lastDirectClass, conf);
             lastDirectClass = null;
             return clInfo;
         }
         Object read = input.readObject();
         String name = (String) read;
         String clzName = conf.getClassForCPName(name);
-        return conf.getCLInfoRegistry().getCLInfo(classForName(clzName));
+        return conf.getCLInfoRegistry().getCLInfo(classForName(clzName), conf);
     }
 
     HashMap<String,Class> clzCache = new HashMap<>();
@@ -412,6 +422,52 @@ public class FSTMinBinDecoder implements FSTDecoder {
     @Override
     public void pushBack(int bytes) {
         input.setPos(input.getPos()-bytes);
+    }
+
+    @Override
+    public void readArrayEnd(FSTClazzInfo clzSerInfo) {
+    }
+
+    @Override
+    public void readObjectEnd() {
+    }
+
+    @Override
+    public Object coerceElement(Class arrType, Object value) {
+        if ( value instanceof Number ) {
+            Number n = (Number) value;
+            if ( arrType == Byte.class ) {
+                return new Byte(n.byteValue());
+            } else if ( arrType == Short.class ) {
+                return new Short(n.shortValue());
+            } else if ( arrType == Integer.class ) {
+                return new Integer(n.intValue());
+            } else if ( arrType == Long.class ) {
+                return new Long(n.longValue());
+            } else if ( arrType == Double.class ) {
+                return new Double(n.doubleValue());
+            } else if ( arrType == Float.class ) {
+                return new Float(n.floatValue());
+            } else if ( arrType == Character.class ) {
+                return new Character((char) n.intValue());
+            }
+        }
+        return value;
+    }
+
+    @Override
+    public int available() {
+        return input.getCount() - input.getPos();
+    }
+
+    @Override
+    public boolean inArray() {
+        return false;
+    }
+
+    @Override
+    public void startFieldReading(Object newObj) {
+
     }
 
 }

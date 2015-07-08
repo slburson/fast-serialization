@@ -29,16 +29,18 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * As socket allowing to send/receive serializable objects
  * see ./test/net for an example
  *
+ * Note that by providing a Json configuration, it can be used cross language
+ *
  */
 public class TCPObjectSocket {
 
-    public static int BUFFER_SIZE = 64000;
+    public static int BUFFER_SIZE = 512_000;
 
     InputStream in;
     OutputStream out;
     FSTConfiguration conf;
     Socket socket;
-    Exception lastErr;
+    Throwable lastErr;
     boolean stopped;
 
     AtomicBoolean readLock = new AtomicBoolean(false);
@@ -54,40 +56,34 @@ public class TCPObjectSocket {
 
     public TCPObjectSocket( Socket socket, FSTConfiguration conf) throws IOException {
         this.socket = socket;
+//        socket.setSoLinger(true,0);
         this.out = new BufferedOutputStream(socket.getOutputStream(), BUFFER_SIZE);
         this.in  = new BufferedInputStream(socket.getInputStream(), BUFFER_SIZE);
         this.conf = conf;
-    }
-
-    public Exception getLastErr() {
-        return lastErr;
     }
 
     public boolean isStopped() {
         return stopped;
     }
 
+    public boolean isClosed() {
+        return socket.isClosed();
+    }
+
+    /**
+     * enables reading raw bytes from socket
+     * @return
+     */
+    public InputStream getIn() {
+        return in;
+    }
+
     public Object readObject() throws Exception {
         try {
             while ( !readLock.compareAndSet(false,true) );
-            int ch1 = (in.read() + 256) & 0xff;
-            int ch2 = (in.read()+ 256) & 0xff;
-            int ch3 = (in.read() + 256) & 0xff;
-            int ch4 = (in.read() + 256) & 0xff;
-            int len = (ch4 << 24) + (ch3 << 16) + (ch2 << 8) + (ch1 << 0);
-            if ( len <= 0 )
-                throw new EOFException("client closed");
-            int orglen = len;
-            byte buffer[] = new byte[len]; // this could be reused !
-            while (len > 0)
-                len -= in.read(buffer, buffer.length - len, len);
-            try {
-                return conf.getObjectInput(buffer).readObject();
-            } catch (Exception e) {
-                System.out.println("orglen: "+orglen+" "+new String(buffer,0));
-                final Object retry = conf.getObjectInput(buffer).readObject();
-                throw e;
-            }
+
+            return conf.decodeFromStream(in);
+
         } finally {
             readLock.set(false);
         }
@@ -96,17 +92,7 @@ public class TCPObjectSocket {
     public void writeObject(Object toWrite) throws Exception {
         try {
             while ( !writeLock.compareAndSet(false,true) );
-            FSTObjectOutput objectOutput = conf.getObjectOutput(); // could also do new with minor perf impact
-            objectOutput.writeObject(toWrite);
-
-            int written = objectOutput.getWritten();
-            out.write((written >>> 0) & 0xFF);
-            out.write((written >>> 8) & 0xFF);
-            out.write((written >>> 16) & 0xFF);
-            out.write((written >>> 24) & 0xFF);
-
-            out.write(objectOutput.getBuffer(), 0, written);
-            objectOutput.flush();
+            conf.encodeToStream(out, toWrite);
         } finally {
             writeLock.set(false);
         }
@@ -116,9 +102,13 @@ public class TCPObjectSocket {
         out.flush();
     }
 
-    public void setLastError(Exception ex) {
+    public void setLastError(Throwable ex) {
         stopped = true;
         lastErr = ex;
+    }
+
+    public Throwable getLastError() {
+        return lastErr;
     }
 
     public void close() throws IOException {
@@ -128,6 +118,14 @@ public class TCPObjectSocket {
 
     public Socket getSocket() {
         return socket;
+    }
+
+    public FSTConfiguration getConf() {
+        return conf;
+    }
+
+    public void setConf(FSTConfiguration conf) {
+        this.conf = conf;
     }
 
 }

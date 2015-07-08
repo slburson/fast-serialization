@@ -26,7 +26,7 @@ import java.io.IOException;
 import java.io.InputStream;
 
 /**
- * decodes a stream written with FTSStreamEnconder
+ * Default Coder used for serialization. Decodes a binary stream written with FSTStreamEncoder
  */
 public class FSTStreamDecoder implements FSTDecoder {
 
@@ -39,14 +39,26 @@ public class FSTStreamDecoder implements FSTDecoder {
         this.conf = conf;
         clnames = (FSTClazzNameRegistry) conf.getCachedObject(FSTClazzNameRegistry.class);
         if (clnames == null) {
-            clnames = new FSTClazzNameRegistry(conf.getClassRegistry(), conf);
+            clnames = new FSTClazzNameRegistry(conf.getClassRegistry());
         } else {
             clnames.clear();
         }
     }
 
-    public void ensureReadAhead(int bytes) {
+    @Override
+    public void setConf(FSTConfiguration conf) {
+        this.conf = conf;
+        clnames = (FSTClazzNameRegistry) conf.getCachedObject(FSTClazzNameRegistry.class);
+        if (clnames == null) {
+            clnames = new FSTClazzNameRegistry(conf.getClassRegistry());
+        } else {
+            clnames.clear();
+        }
+    }
+
+    public int ensureReadAhead(int bytes) {
         input.ensureReadAhead(bytes);
+        return 0; // checking for eof too expensive ..
     }
 
     char chBufS[];
@@ -163,11 +175,40 @@ public class FSTStreamDecoder implements FSTDecoder {
                 throw new RuntimeException("unexpected primitive type " + componentType.getName());
             }
         } catch (IOException e) {
-            throw FSTUtil.rethrow(e);  //To change body of catch statement use File | Settings | File Templates.
+            FSTUtil.<RuntimeException>rethrow(e);
         }
+        return null;
     }
 
-    @Override
+    // compressed version
+    public void _readFIntArr(int len, int[] arr) throws IOException {
+        ensureReadAhead(5 * len);
+        final byte buf[] = input.buf;
+        int count = input.pos;
+        for (int j = 0; j < len; j++) {
+            final byte head = buf[count++];
+            // -128 = short byte, -127 == 4 byte
+            if (head > -127 && head <= 127) {
+                arr[j] = head;
+                continue;
+            }
+            if (head == -128) {
+                final int ch1 = (buf[count++]+256)&0xff;
+                final int ch2 = (buf[count++]+256)&0xff;
+                arr[j] = (short)((ch1 << 8) + (ch2 << 0));
+                continue;
+            } else {
+                int ch1 = (buf[count++]+256)&0xff;
+                int ch2 = (buf[count++]+256)&0xff;
+                int ch3 = (buf[count++]+256)&0xff;
+                int ch4 = (buf[count++]+256)&0xff;
+                arr[j] = ((ch1 << 24) + (ch2 << 16) + (ch3 << 8) + (ch4 << 0));
+            }
+        }
+        input.pos = count;
+    }
+
+    @Override // uncompressed version
     public void readFIntArr(int len, int[] arr) throws IOException {
         int bytelen = arr.length * 4;
         ensureReadAhead(bytelen);
@@ -247,6 +288,14 @@ public class FSTStreamDecoder implements FSTDecoder {
     public final byte readFByte() throws IOException {
         input.ensureReadAhead(1);
         return input.buf[input.pos++];
+    }
+
+    @Override
+    public final int readIntByte() throws IOException {
+        input.ensureReadAhead(1);
+        if ( input.isFullyRead() )
+            return -1;
+        return input.buf[input.pos++] & 0xff;
     }
 
     @Override
@@ -410,25 +459,26 @@ public class FSTStreamDecoder implements FSTDecoder {
     @Override
     public void resetWith(byte[] bytes, int len) {
         clnames.clear();
-        input.reset();
-        input.count = len;
-        input.buf = bytes;
-        input.pos = 0;
-        input.byteBacked = true;
+        input.resetForReuse(bytes,len);
+//        input.reset();
+//        input.count = len;
+//        input.buf = bytes;
+//        input.pos = 0;
+//        input.byteBacked = true;
     }
 
     @Override
     public FSTClazzInfo readClass() throws IOException, ClassNotFoundException {
-        return clnames.decodeClass(this);
+        return clnames.decodeClass(this,conf);
     }
 
     @Override
     public Class classForName(String name) throws ClassNotFoundException {
-        return clnames.classForName(name);
+        return clnames.classForName(name,conf);
     }
     @Override
     public void registerClass(Class possible) {
-        clnames.registerClass(possible);
+        clnames.registerClass(possible,conf);
     }
     @Override
     public void close() {
@@ -490,6 +540,36 @@ public class FSTStreamDecoder implements FSTDecoder {
     @Override
     public void pushBack(int bytes) {
         input.pos -= bytes;
+    }
+
+    @Override
+    public void readArrayEnd(FSTClazzInfo clzSerInfo) {
+    }
+
+    @Override
+    public void readObjectEnd() {
+    }
+
+    @Override
+    public Object coerceElement(Class arrType, Object value) {
+        return value;
+    }
+
+
+    @Override
+    public int available() {
+        input.ensureReadAhead(1);
+        return input.available();
+    }
+
+    @Override
+    public boolean inArray() {
+        return false;
+    }
+
+    @Override
+    public void startFieldReading(Object newObj) {
+
     }
 
 

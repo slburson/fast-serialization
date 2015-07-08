@@ -22,7 +22,10 @@ import java.util.*;
  * User: ruedi
  * Date: 10.11.12
  * Time: 15:04
- * To change this template use File | Settings | File Templates.
+ *
+ * contains a map from class => serializer.
+ * One can register Serializers for exact classes or a class and all its subclasses (can have unexpected consequences in case a subclass holds additional state).
+ *
  */
 public class FSTSerializerRegistry {
 
@@ -45,7 +48,7 @@ public class FSTSerializerRegistry {
         }
 
         @Override
-        public void readObject(FSTObjectInput out, Object toWrite, FSTClazzInfo clzInfo, FSTClazzInfo.FSTFieldInfo referencedBy) {
+        public void readObject(FSTObjectInput out, Object toWrite, FSTClazzInfo clzInfo, FSTClazzInfo.FSTFieldInfo referencedBy) throws Exception {
         }
 
         @Override
@@ -64,7 +67,7 @@ public class FSTSerializerRegistry {
         }
 
         @Override
-        public Object instantiate(Class objectClass, FSTObjectInput fstObjectInput, FSTClazzInfo serializationInfo, FSTClazzInfo.FSTFieldInfo referencee, int streamPositioin) {
+        public Object instantiate(Class objectClass, FSTObjectInput fstObjectInput, FSTClazzInfo serializationInfo, FSTClazzInfo.FSTFieldInfo referencee, int streamPosition) throws Exception {
             return null;
         }
     };

@@ -15,7 +15,6 @@
  */
 package org.nustaq.serialization.simpleapi;
 
-import org.nustaq.offheap.bytez.malloc.MallocBytez;
 import org.nustaq.offheap.bytez.onheap.HeapBytez;
 import org.nustaq.serialization.*;
 import org.nustaq.serialization.coders.FSTBytezDecoder;
@@ -67,6 +66,19 @@ public class OnHeapCoder implements FSTCoder {
             public FSTDecoder createStreamDecoder() {
                 return new FSTBytezDecoder(conf,readTarget);
             }
+
+            ThreadLocal input = new ThreadLocal();
+            ThreadLocal output = new ThreadLocal();
+            @Override
+            public ThreadLocal getInput() {
+                return input;
+            }
+
+            @Override
+            public ThreadLocal getOutput() {
+                return output;
+            }
+
         });
         if ( sharedRefs ) {
             out = conf.getObjectOutput();
@@ -107,7 +119,7 @@ public class OnHeapCoder implements FSTCoder {
         try {
             out.writeObject(o);
         } catch (IOException e) {
-            throw FSTUtil.rethrow(e);
+            FSTUtil.<RuntimeException>rethrow(e);
         }
         int written = out.getWritten();
         return written;
@@ -122,7 +134,7 @@ public class OnHeapCoder implements FSTCoder {
             try {
                 out.writeObject(o);
             } catch (IOException e) {
-                throw FSTUtil.rethrow(e);
+                FSTUtil.<RuntimeException>rethrow(e);
             }
             return out.getCopyOfWrittenBuffer();
         } catch (FSTBufferTooSmallException ex) {
@@ -153,8 +165,9 @@ public class OnHeapCoder implements FSTCoder {
             Object o = in.readObject();
             return o;
         } catch (Exception e) {
-            throw FSTUtil.rethrow(e);
+            FSTUtil.<RuntimeException>rethrow(e);
         }
+        return null;
     }
 
     /**

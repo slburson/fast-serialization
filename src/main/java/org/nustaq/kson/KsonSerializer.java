@@ -58,8 +58,6 @@ public class KsonSerializer {
         if (o instanceof Character) {
             if (indent >= 0) writeIndent(indent);
             final char ch = ((Character) o).charValue();
-            if (ch==0)
-                System.out.println("POK");
             if (ch <128 && ch > 32)
                 out.writeString(o.toString());
             else
@@ -160,7 +158,7 @@ public class KsonSerializer {
             writeClazzTag(expectedClass, o);
             writeln();
 
-            FSTClazzInfo clInfo = conf.getCLInfoRegistry().getCLInfo(o.getClass());
+            FSTClazzInfo clInfo = conf.getCLInfoRegistry().getCLInfo(o.getClass(), conf);
             FSTClazzInfo.FSTFieldInfo[] fieldInfo = clInfo.getFieldInfo();
 
             for (int i = 0; i < fieldInfo.length; i++) {

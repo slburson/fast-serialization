@@ -29,29 +29,20 @@ import org.nustaq.serialization.util.FSTUtil;
 public final class FSTObjectRegistry {
 
     public static final int OBJ_DIVISOR = 16;
+    public static int POS_MAP_SIZE = 1000; // reduce this for testing
+
     boolean disabled = false;
     FSTIdentity2IdMap objects = new FSTIdentity2IdMap(11); // object => id
     FSTInt2ObjectMap idToObject = new FSTInt2ObjectMap(11);
 
-    FSTConfiguration conf;
-    FSTClazzInfoRegistry reg;
-    Object reuseMap[] = new Object[4000];
+    Object reuseMap[] = new Object[POS_MAP_SIZE];
     private int highestPos;
 
     public FSTObjectRegistry(FSTConfiguration conf) {
-        this.conf = conf;
         disabled = !conf.isShareReferences();
-        reg = conf.getCLInfoRegistry();
     }
 
-    public void clearFully() {
-        objects.clear();
-        idToObject.clear();
-        disabled = !conf.isShareReferences();
-        FSTUtil.clear(reuseMap);
-    }
-
-    public void clearForRead() {
+    public void clearForRead(FSTConfiguration conf) {
         disabled = !conf.isShareReferences();
         if ( !disabled ) {
             if ( idToObject.mKeys.length > 6 * idToObject.size() && idToObject.size() > 0 ) {
@@ -66,7 +57,7 @@ public final class FSTObjectRegistry {
         highestPos = 0;
     }
 
-    public void clearForWrite() {
+    public void clearForWrite(FSTConfiguration conf) {
         disabled = !conf.isShareReferences();
         if ( ! disabled ) {
             if ( objects.size() > 0 && objects.mKeys.length > 6 * objects.size() ) {
@@ -120,7 +111,7 @@ public final class FSTObjectRegistry {
         if (disabled /*|| streamPosition <= lastRegisteredReadPos*/) {
             return;
         }
-//        System.out.println("POK REGISTER:"+o+":"+streamPosition);
+//        System.out.println("POK REGISTER AT READ:"+streamPosition+" : "+o);
         int pos = streamPosition / OBJ_DIVISOR;
         Object[] reuseMap = this.reuseMap;
         if ( pos < reuseMap.length ) {
@@ -146,6 +137,7 @@ public final class FSTObjectRegistry {
         if (disabled) {
             return Integer.MIN_VALUE;
         }
+//        System.out.println("REGISTER AT WRITE:"+streamPosition+" "+o.getClass().getSimpleName());
 //        final Class clazz = o.getClass();
         if ( clzInfo == null ) { // array oder enum oder primitive
             // unused ?

@@ -23,6 +23,8 @@ import java.io.OutputStream;
  */
 public interface FSTEncoder {
 
+    void setConf(FSTConfiguration conf);
+
     void writeRawBytes(byte[] bufferedName, int off, int length) throws IOException;
     /**
      * does not write class tag and length
@@ -80,8 +82,8 @@ public interface FSTEncoder {
     void writeClass(Class cl);
     void writeClass(FSTClazzInfo clInf);
 
-    // write a meta byte item. return true if encoder wrote array as a primitive object
-    boolean writeTag(byte tag, Object info, long somValue, Object toWrite) throws IOException;
+    // write a meta byte item. return true if encoder wrote full object (e.g. literal, primitive)
+    boolean writeTag(byte tag, Object info, long somValue, Object toWrite, FSTObjectOutput oout) throws IOException;
 
     void writeAttributeName(FSTClazzInfo.FSTFieldInfo subInfo);
 
@@ -96,4 +98,10 @@ public interface FSTEncoder {
     void writeVersionTag(int version) throws IOException;
 
     boolean isByteArrayBased();
+
+    void writeArrayEnd();
+
+    void writeFieldsEnd(FSTClazzInfo serializationInfo);
+
+    FSTConfiguration getConf();
 }

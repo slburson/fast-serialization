@@ -17,11 +17,14 @@ package org.nustaq.serialization;
 
 import org.nustaq.offheap.structs.Align;
 import org.nustaq.serialization.annotations.*;
+import org.nustaq.serialization.util.FSTMap;
 import org.nustaq.serialization.util.FSTUtil;
 
 import java.io.*;
 import java.lang.reflect.*;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Created with IntelliJ IDEA.
@@ -31,6 +34,16 @@ import java.util.*;
  * To change this template use File | Settings | File Templates.
  */
 public final class FSTClazzInfo {
+
+    // cache constructor per class (big saving in permspace)
+    public static boolean BufferConstructorMeta = true;
+    // cache and share class.getDeclaredFields amongst all fstconfigs
+    public static boolean BufferFieldMeta = true;
+
+    /**
+     * cache + share j.reflect.Field. This can be cleared in case it gets too fat/leaks mem (e.g. class reloading)
+     */
+    public static ConcurrentHashMap<Class,Field[]> sharedFieldSets = new ConcurrentHashMap<>();
 
     public static final Comparator<FSTFieldInfo> defFieldComparator = new Comparator<FSTFieldInfo>() {
         @Override
@@ -71,9 +84,19 @@ public final class FSTClazzInfo {
     };
     Class[] predict;
     private boolean ignoreAnn;
-    HashMap<String, FSTFieldInfo> fieldMap = new HashMap<String, FSTFieldInfo>(15); // all fields
+    FSTMap<String, FSTFieldInfo> fieldMap;
     Method writeReplaceMethod, readResolveMethod;
-    HashMap<Class, FSTCompatibilityInfo> compInfo = new HashMap<Class, FSTCompatibilityInfo>(7);
+    FSTMap<Class, FSTCompatibilityInfo> compInfo;
+
+    Object decoderAttached; // for decoders
+
+    public Object getDecoderAttached() {
+        return decoderAttached;
+    }
+
+    public void setDecoderAttached(Object decoderAttached) {
+        this.decoderAttached = decoderAttached;
+    }
 
     boolean requiresCompatibleMode;
     boolean externalizable;
@@ -91,7 +114,6 @@ public final class FSTClazzInfo {
     int structSize = 0;
 
 
-    FSTClazzInfoRegistry reg;
     FSTConfiguration conf;
     protected FSTClassInstantiator instantiator; // initialized from FSTConfiguration in constructor
     boolean crossPlatform;
@@ -101,7 +123,6 @@ public final class FSTClazzInfo {
         crossPlatform = conf.isCrossPlatform();
         this.clazz = clazz;
         enumConstants = clazz.getEnumConstants();
-        reg = infoRegistry;
         ignoreAnn = ignoreAnnotations;
         createFields(clazz);
 
@@ -113,7 +134,7 @@ public final class FSTClazzInfo {
             externalizable = false;
             cons = instantiator.findConstructorForSerializable(clazz);
         } else {
-            if (!reg.isStructMode()) {
+            if (!conf.isStructMode()) {
                 if ( conf.isForceSerializable() || getSer() != null ) {
                     externalizable = false;
                     cons = instantiator.findConstructorForSerializable(clazz);
@@ -222,7 +243,13 @@ public final class FSTClazzInfo {
         if (c == null) {
             return res;
         }
-        List<Field> c1 = Arrays.asList(c.getDeclaredFields());
+        Field[] declaredFields = BufferFieldMeta ? sharedFieldSets.get(c) : null ;
+        if ( declaredFields == null ) {
+            declaredFields = c.getDeclaredFields();
+            if (BufferFieldMeta)
+                sharedFieldSets.put(c,declaredFields);
+        }
+        List<Field> c1 = Arrays.asList(declaredFields);
         Collections.reverse(c1);
         for (int i = 0; i < c1.size(); i++) {
             Field field = c1.get(i);
@@ -238,7 +265,8 @@ public final class FSTClazzInfo {
                 i--;
             }
         }
-        return getAllFields(c.getSuperclass(), res);
+        List<Field> allFields = getAllFields(c.getSuperclass(), res);
+        return new ArrayList<>(allFields);
     }
 
     private boolean isTransient(Class c, Field field) {
@@ -293,10 +321,25 @@ public final class FSTClazzInfo {
     }
 
     public final FSTFieldInfo getFieldInfo(String name, Class declaringClass) {
+        if ( fieldMap == null )
+            buildFieldMap();
         if (declaringClass == null) {
             return fieldMap.get(name);
         }
         return fieldMap.get(declaringClass.getName() + "#" + name);
+    }
+
+    private void buildFieldMap() {
+        if ( fieldMap == null ) {
+            fieldMap = new FSTMap<>(fieldInfo.length);
+            for (int i = 0; i < fieldInfo.length; i++) {
+                Field field = fieldInfo[i].getField();
+                if ( field != null ) {
+                    fieldMap.put(field.getDeclaringClass().getName() + "#" + field.getName(), fieldInfo[i]);
+                    fieldMap.put(field.getName(), fieldInfo[i]);
+                }
+            }
+        }
     }
 
     private void createFields(Class c) {
@@ -308,8 +351,6 @@ public final class FSTClazzInfo {
         for (int i = 0; i < fields.size(); i++) {
             Field field = fields.get(i);
             fieldInfo[i] = createFieldInfo(field);
-            fieldMap.put(field.getDeclaringClass().getName() + "#" + field.getName(), fieldInfo[i]);
-            fieldMap.put(field.getName(), fieldInfo[i]);
         }
 
         // compatibility info sort order
@@ -340,8 +381,25 @@ public final class FSTClazzInfo {
             }
         };
 
+        // check if we actually need to build up compatibility info (memory intensive)
+        boolean requiresCompatibilityData = false;
+        if ( ! Externalizable.class.isAssignableFrom(c) && getSerNoStore() == null ) {
+            Class tmpCls = c;
+            while( tmpCls != Object.class ) {
+                if ( FSTUtil.findPrivateMethod(tmpCls, "writeObject", new Class<?>[]{ObjectOutputStream.class}, Void.TYPE) != null ||
+                     FSTUtil.findPrivateMethod(tmpCls, "readObject", new Class<?>[]{ObjectInputStream.class},Void.TYPE) != null ||
+                     FSTUtil.findDerivedMethod(tmpCls, "writeReplace", null, Object.class) != null ||
+                     FSTUtil.findDerivedMethod(tmpCls, "readResolve", null, Object.class) != null ) {
+                     requiresCompatibilityData = true;
+                     break;
+                }
+                tmpCls = tmpCls.getSuperclass();
+            }
+        }
 
-        if (!reg.isStructMode()) {
+        if (!conf.isStructMode() && requiresCompatibilityData ) {
+            getCompInfo();
+            buildFieldMap();
             Class curCl = c;
             fields.clear();
             while (curCl != Object.class) {
@@ -349,7 +407,7 @@ public final class FSTClazzInfo {
                 try {
                     os = ObjectStreamClass.lookup(curCl);
                 } catch (Exception e) {
-                    throw FSTUtil.rethrow(e);
+                    FSTUtil.<RuntimeException>rethrow(e);
                 }
                 if (os != null) {
                     final ObjectStreamField[] fi = os.getFields();
@@ -372,7 +430,7 @@ public final class FSTClazzInfo {
                     }
                     Collections.sort(curClzFields, infocomp);
                     FSTCompatibilityInfo info = new FSTCompatibilityInfo(curClzFields, curCl);
-                    compInfo.put(curCl, info);
+                    getCompInfo().put(curCl, info);
                     if (info.needsCompatibleMode()) {
                         requiresCompatibleMode = true;
                     }
@@ -383,7 +441,7 @@ public final class FSTClazzInfo {
 
         // default sort order
         Comparator<FSTFieldInfo> comp = defFieldComparator;
-        if (!reg.isStructMode())
+        if (!conf.isStructMode())
             Arrays.sort(fieldInfo, comp);
         int off = 8; // object header: length + clzId
         for (int i = 0; i < fieldInfo.length; i++) {
@@ -424,10 +482,26 @@ public final class FSTClazzInfo {
     }
 
 
-    private FSTFieldInfo createFieldInfo(Field field) {
+    static AtomicInteger fiCount = new AtomicInteger(0);
+    static AtomicInteger missCount = new AtomicInteger(0);
+    protected FSTFieldInfo createFieldInfo(Field field) {
+        FSTConfiguration.FieldKey key = null;
+        if ( conf.fieldInfoCache != null ) {
+            key = new FSTConfiguration.FieldKey(field.getDeclaringClass(), field.getName());
+            FSTFieldInfo res = conf.fieldInfoCache.get(key);
+            if ( res != null ) {
+                fiCount.incrementAndGet();
+                return res;
+            }
+        }
         field.setAccessible(true);
         Predict predict = crossPlatform ? null : field.getAnnotation(Predict.class); // needs to be iognored cross platform
-        return new FSTFieldInfo(predict != null ? predict.value() : null, field, ignoreAnn);
+        FSTFieldInfo result = new FSTFieldInfo(predict != null ? predict.value() : null, field, ignoreAnn);
+        if ( conf.fieldInfoCache != null && key != null ) {
+            conf.fieldInfoCache.put(key,result);
+        }
+        missCount.incrementAndGet();
+        return result;
     }
 
     public final Method getReadResolveMethod() {
@@ -446,6 +520,12 @@ public final class FSTClazzInfo {
         return enumConstants;
     }
 
+    public FSTMap<Class, FSTCompatibilityInfo> getCompInfo() {
+        if (compInfo == null)
+            compInfo = new FSTMap<>(3); // just avoid edge case NPE's
+        return compInfo;
+    }
+
     public final static class FSTFieldInfo {
 
         final public static int BOOL = 1;
@@ -458,7 +538,7 @@ public final class FSTClazzInfo {
         final public static int DOUBLE = 8;
 
         Class possibleClasses[];
-        FSTClazzInfo lastInfo;
+        FSTClazzInfo lastInfo; // cache last class stored (can save a hash lookup)
         String oneOf[] = null;
 
         int arrayDim;
@@ -480,11 +560,11 @@ public final class FSTClazzInfo {
         int indexId; // position in serializable fields array
         int align = 0;
         int alignPad = 0;
-        byte[] bufferedName; // cache byte rep of field name (used for cross platform)
+        Object bufferedName; // cache byte rep of field name (used for cross platform)
 
-        // hacke required for compatibility with ancient JDK mechanics (cross JDK, e.g. Android <=> OpenJDK ).
+        // hack required for compatibility with ancient JDK mechanics (cross JDK, e.g. Android <=> OpenJDK ).
         // in rare cases, a field used in putField is not present as a real field
-        // in this case only these to fields of a fieldinfo are set
+        // in this case only these of a fieldinfo are set
         public String fakeName;
 
         public FSTFieldInfo(Class[] possibleClasses, Field fi, boolean ignoreAnnotations) {
@@ -532,11 +612,11 @@ public final class FSTClazzInfo {
             return version;
         }
 
-        public byte[] getBufferedName() {
+        public Object getBufferedName() {
             return bufferedName;
         }
 
-        public void setBufferedName(byte[] bufferedName) {
+        public void setBufferedName(Object bufferedName) {
             this.bufferedName = bufferedName;
         }
 
@@ -883,12 +963,16 @@ public final class FSTClazzInfo {
         }
     }
 
+    /**
+     * sideeffecting: if no ser is found, next lookup will return null immediate
+     * @return
+     */
     public FSTObjectSerializer getSer() {
         if (ser == null) {
             if (clazz == null) {
                 return null;
             }
-            ser = reg.serializerRegistry.getSerializer(clazz);
+            ser = getSerNoStore();
             if (ser == null) {
                 ser = FSTSerializerRegistry.NULL;
             }
@@ -897,6 +981,11 @@ public final class FSTClazzInfo {
             return null;
         }
         return ser;
+    }
+
+    // no sideffecting lookup
+    public FSTObjectSerializer getSerNoStore() {
+        return conf.getCLInfoRegistry().getSerializerRegistry().getSerializer(clazz);
     }
 
     static class FSTCompatibilityInfo {

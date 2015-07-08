@@ -16,9 +16,8 @@
 package org.nustaq.serialization.util;
 
 import sun.misc.Unsafe;
-import java.io.ObjectStreamField;
-import java.io.PrintWriter;
-import java.io.StringWriter;
+
+import java.io.*;
 import java.lang.reflect.*;
 import java.util.Arrays;
 import java.util.List;
@@ -32,7 +31,6 @@ import java.util.List;
  */
 public class FSTUtil {
 
-    static int[] EmptyIntArray = new int[10000];
     static Object[] EmptyObjArray = new Object[10000];
     static ObjectStreamField[] NO_FIELDS = new ObjectStreamField[0];
     public static Unsafe unFlaggedUnsafe = FSTUtil.getUnsafe(); // even if unsafe is disabled, use it for memoffset computation
@@ -84,13 +82,7 @@ public class FSTUtil {
     public final static long doublescal;
 
     public static void clear(int[] arr) {
-        int count = 0;
-        final int length = EmptyIntArray.length;
-        while (arr.length - count > length) {
-            System.arraycopy(EmptyIntArray, 0, arr, count, length);
-            count += length;
-        }
-        System.arraycopy(EmptyIntArray, 0, arr, count, arr.length - count);
+        Arrays.fill(arr,0);
     }
 
     public static void clear(Object[] arr) {
@@ -115,13 +107,12 @@ public class FSTUtil {
         return th.getClass().getSimpleName() + ":" + th.getMessage() + "\n" + sw.toString();
     }
 
-    public static RuntimeException rethrow(Throwable ex) {
-        if (ex instanceof RuntimeException) {
-            return (RuntimeException) ex;
-        }
-        return new RuntimeException(ex);
+    public static <T extends Throwable> void rethrow(Throwable exception) throws T
+    {
+        throw (T) exception;
     }
 
+    // obsolete
     public static String getPackage(Class clazz) {
         String s = clazz.getName();
         int i = s.lastIndexOf('[');
@@ -242,4 +233,33 @@ public class FSTUtil {
         return fields;
     }
 
+    public static byte[] readAll(InputStream is)
+        throws Exception {
+        int pos = 0;
+        byte[] buffer = new byte[1024];
+        while (true) {
+            int toRead;
+            if (pos >= buffer.length) {
+                toRead = buffer.length * 2;
+                if (buffer.length < pos + toRead) {
+                    buffer = Arrays.copyOf(buffer, pos + toRead);
+                }
+            } else {
+                toRead = buffer.length - pos;
+            }
+            int byt = is.read(buffer, pos, toRead);
+            if (byt < 0) {
+                if (pos != buffer.length) {
+                    buffer = Arrays.copyOf(buffer, pos);
+                }
+                break;
+            }
+            pos += byt;
+        }
+        return buffer;
+    }
+
+    public static int nextPow2( int num ) {
+        return 1<<(num == 0 ? 0 : 32 - Integer.numberOfLeadingZeros(num - 1));
+    }
 }

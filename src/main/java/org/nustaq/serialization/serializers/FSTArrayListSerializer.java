@@ -54,19 +54,20 @@ public class FSTArrayListSerializer extends FSTBasicObjectSerializer {
     }
 
     @Override
-    public Object instantiate(Class objectClass, FSTObjectInput in, FSTClazzInfo serializationInfo, FSTClazzInfo.FSTFieldInfo referencee, int streamPositioin) throws IOException, ClassNotFoundException, InstantiationException, IllegalAccessException {
+    public Object instantiate(Class objectClass, FSTObjectInput in, FSTClazzInfo serializationInfo, FSTClazzInfo.FSTFieldInfo referencee, int streamPosition) throws Exception {
         try {
             int len = in.readInt();
             ArrayList res = new ArrayList(len);
-            in.registerObject(res, streamPositioin,serializationInfo, referencee);
+            in.registerObject(res, streamPosition,serializationInfo, referencee);
             for ( int i = 0; i < len; i++ ) {
                 final Object o = in.readObjectInternal(null);
                 res.add(o);
             }
             return res;
         } catch (Throwable th) {
-            throw FSTUtil.rethrow(th);
+            FSTUtil.<RuntimeException>rethrow(th);
         }
+        return null;
     }
 
 }

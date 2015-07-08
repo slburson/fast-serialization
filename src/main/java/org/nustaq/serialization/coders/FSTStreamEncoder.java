@@ -15,10 +15,7 @@
  */
 package org.nustaq.serialization.coders;
 
-import org.nustaq.serialization.FSTClazzInfo;
-import org.nustaq.serialization.FSTClazzNameRegistry;
-import org.nustaq.serialization.FSTConfiguration;
-import org.nustaq.serialization.FSTEncoder;
+import org.nustaq.serialization.*;
 import org.nustaq.serialization.util.FSTOutputStream;
 import org.nustaq.serialization.util.FSTUtil;
 
@@ -26,11 +23,11 @@ import java.io.IOException;
 import java.io.OutputStream;
 
 /**
- * serializes into a binary stream
+ * Default Coder used for serialization. Serializes into a binary stream
  */
 public class FSTStreamEncoder implements FSTEncoder {
 
-    private final FSTConfiguration conf;
+    private FSTConfiguration conf;
     
     private FSTClazzNameRegistry clnames;
     private FSTOutputStream buffout;
@@ -40,48 +37,162 @@ public class FSTStreamEncoder implements FSTEncoder {
         this.conf = conf;
         clnames = (FSTClazzNameRegistry) conf.getCachedObject(FSTClazzNameRegistry.class);
         if ( clnames == null ) {
-            clnames = new FSTClazzNameRegistry(conf.getClassRegistry(), conf);
+            clnames = new FSTClazzNameRegistry(conf.getClassRegistry());
         } else {
             clnames.clear();
         }
     }
 
+    @Override
+    public void setConf(FSTConfiguration conf) {
+        this.conf = conf;
+    }
+
     void writeFBooleanArr(boolean[] arr, int off, int len) throws IOException {
-        for (int i = off; i < off+len; i++)
-            writeFByte(arr[i] ? 1 : 0);
+        buffout.ensureFree(len);
+        for (int i = off; i < off+len; i++) {
+            buffout.buf[buffout.pos++] = (byte) (arr[i] ? 1 : 0);
+        }
     }
 
     public void writeFFloatArr(float[] arr, int off, int len) throws IOException {
-        for (int i = off; i < off+len; i++)
-            writeFFloat(arr[i]);
-    }
-
-    public void writeFDoubleArr(double[] arr, int off, int len) throws IOException {
-        for (int i = off; i < off+len; i++)
-            writeFDouble(arr[i]);
-    }
-
-    public void writeFShortArr(short[] arr, int off, int len) throws IOException {
-        for (int i = off; i < off+len; i++)
-            writeFShort(arr[i]);
-    }
-
-    public void writeFCharArr(char[] arr, int off, int len) throws IOException {
-        for (int i = off; i < off+len; i++)
-            writeFChar(arr[i]);
-    }
-
-    void writeFIntArr(int[] arr, int off, int len) throws IOException {
         int byteLen = arr.length * 4;
         buffout.ensureFree(byteLen);
         byte buf[] = buffout.buf;
         int count = buffout.pos;
+        int max = off + len;
+        for (int i = off; i < max; i++) {
+            long anInt = Float.floatToIntBits(arr[i]);
+            buf[count] = (byte) (anInt >>> 0);
+            buf[count+1] = (byte) (anInt >>> 8);
+            buf[count+2] = (byte) (anInt >>> 16);
+            buf[count+3] = (byte) (anInt >>> 24);
+            count+=4;
+        }
+        buffout.pos+= byteLen;
+    }
+
+    public void writeFDoubleArr(double[] arr, int off, int len) throws IOException {
+        final int byteLen = arr.length * 8;
+        buffout.ensureFree(byteLen);
+        final byte buf[] = buffout.buf;
+        int count = buffout.pos;
+        final int max = off + len;
+        for (int i = off; i < max; i++) {
+            long aLong = Double.doubleToLongBits(arr[i]);
+            buf[count] = (byte) (aLong >>> 0);
+            buf[count+1] = (byte) (aLong >>> 8);
+            buf[count+2] = (byte) (aLong >>> 16);
+            buf[count+3] = (byte) (aLong >>> 24);
+            buf[count+4] = (byte) (aLong >>> 32);
+            buf[count+5] = (byte) (aLong >>> 40);
+            buf[count+6] = (byte) (aLong >>> 48);
+            buf[count+7] = (byte) (aLong >>> 56);
+            count+=8;
+        }
+        buffout.pos+= byteLen;
+    }
+
+
+//    Using ByteBuffers is faster but only with 1.8_u40. seems terrible with prior versions.
+//    also requires some hacking in order to reuse a bytebuffer
+
+//    static Field bbHB, bbCap;
+//    static {
+//        Field[] fields = ByteBuffer.class.getDeclaredFields();
+//        for (int i = 0; i < fields.length; i++) {
+//            Field fi = fields[i];
+//            if ( fi.getName() == "hb" ) {
+//                bbHB = fi;
+//                bbHB.setAccessible(true);
+//            }
+//        }
+//        fields = Buffer.class.getDeclaredFields();
+//        for (int i = 0; i < fields.length; i++) {
+//            Field fi = fields[i];
+//            if ( fi.getName() == "capacity" ) {
+//                bbCap = fi;
+//                bbCap.setAccessible(true);
+//            }
+//        }
+//    }
+//
+//    ThreadLocal<ByteBuffer> buf = new ThreadLocal<ByteBuffer>() {
+//        @Override
+//        protected ByteBuffer initialValue() {
+//            return ByteBuffer.wrap(new byte[0]);
+//        }
+//    };
+//
+//    public void writeFDoubleArr(double[] arr, int off, int len) throws IOException {
+//        int byteLen = arr.length * 8;
+//        buffout.ensureFree(byteLen);
+//        int max = off + len;
+//        ByteBuffer wrap = buf.get();
+//        try {
+//            bbHB.set(wrap, buffout.buf);
+//            bbCap.set(wrap,buffout.buf.length);
+//            wrap.limit(buffout.pos+byteLen);
+//        } catch (IllegalAccessException e) {
+//            e.printStackTrace();
+//            wrap = ByteBuffer.wrap(buffout.buf, buffout.pos, byteLen).order(ByteOrder.LITTLE_ENDIAN);
+//        }
+
+//        int count = buffout.pos;
+//        for (int i = off; i < max; i++) {
+//            long aLong = Double.doubleToLongBits(arr[i]);
+//            wrap.putLong(count,aLong);
+//            count += 8;
+//        }
+//        buffout.pos+= byteLen;
+//    }
+
+    public void writeFShortArr(short[] arr, int off, int len) throws IOException {
+        buffout.ensureFree(len*3);
         for (int i = off; i < off+len; i++) {
+            short c = arr[i];
+            if (c < 255 && c >= 0) {
+                buffout.buf[buffout.pos++] = (byte) c;
+            } else {
+                buffout.buf[buffout.pos] = (byte) 255;
+                buffout.buf[buffout.pos+1] = (byte) (c >>> 0);
+                buffout.buf[buffout.pos+2] = (byte) (c >>> 8);
+                buffout.pos += 3;
+            }
+        }
+    }
+
+    public void writeFCharArr(char[] arr, int off, int len) throws IOException {
+        buffout.ensureFree(len*3);
+        for (int i = off; i < off+len; i++) {
+            char c = arr[i];
+            if (c < 255 && c >= 0) {
+                buffout.buf[buffout.pos++] = (byte) c;
+            } else {
+                byte[] buf = buffout.buf;
+                int count = buffout.pos;
+                buf[count] = (byte) 255;
+                buf[count+1] = (byte) (c >>> 0);
+                buf[count+2] = (byte) (c >>> 8);
+                buffout.pos += 3;
+            }
+        }
+    }
+
+    // uncompressed version
+    public void writeFIntArr(int[] arr, int off, int len) throws IOException {
+        int byteLen = arr.length * 4;
+        buffout.ensureFree(byteLen);
+        byte buf[] = buffout.buf;
+        int count = buffout.pos;
+        int max = off + len;
+        for (int i = off; i < max; i++) {
             long anInt = arr[i];
-            buf[count++] = (byte) (anInt >>> 0);
-            buf[count++] = (byte) (anInt >>> 8);
-            buf[count++] = (byte) (anInt >>> 16);
-            buf[count++] = (byte) (anInt >>> 24);
+            buf[count] = (byte) (anInt >>> 0);
+            buf[count+1] = (byte) (anInt >>> 8);
+            buf[count+2] = (byte) (anInt >>> 16);
+            buf[count+3] = (byte) (anInt >>> 24);
+            count+=4;
         }
         buffout.pos+= byteLen;
     }
@@ -119,14 +230,15 @@ public class FSTStreamEncoder implements FSTEncoder {
         int count = buffout.pos;
         for (int i = off; i < off+len; i++) {
             long anInt = arr[i];
-            buf[count++] = (byte) (anInt >>> 0);
-            buf[count++] = (byte) (anInt >>> 8);
-            buf[count++] = (byte) (anInt >>> 16);
-            buf[count++] = (byte) (anInt >>> 24);
-            buf[count++] = (byte) (anInt >>> 32);
-            buf[count++] = (byte) (anInt >>> 40);
-            buf[count++] = (byte) (anInt >>> 48);
-            buf[count++] = (byte) (anInt >>> 56);
+            buf[count] = (byte) (anInt >>> 0);
+            buf[count+1] = (byte) (anInt >>> 8);
+            buf[count+2] = (byte) (anInt >>> 16);
+            buf[count+3] = (byte) (anInt >>> 24);
+            buf[count+4] = (byte) (anInt >>> 32);
+            buf[count+5] = (byte) (anInt >>> 40);
+            buf[count+6] = (byte) (anInt >>> 48);
+            buf[count+7] = (byte) (anInt >>> 56);
+            count += 8;
         }
         buffout.pos+= byteLen;
     }
@@ -235,7 +347,7 @@ public class FSTStreamEncoder implements FSTEncoder {
         
     }
     
-    public boolean writeTag(byte tag, Object info, long somValue, Object toWrite) throws IOException {
+    public boolean writeTag(byte tag, Object info, long somValue, Object toWrite, FSTObjectOutput oout) throws IOException {
         writeFByte(tag);
         return false;
     }
@@ -429,7 +541,7 @@ public class FSTStreamEncoder implements FSTEncoder {
     }
 
     public void registerClass(Class possible) {
-        clnames.registerClass(possible);
+        clnames.registerClass(possible,conf);
     }
 
     @Override
@@ -437,7 +549,7 @@ public class FSTStreamEncoder implements FSTEncoder {
         try {
             clnames.encodeClass(this,cl);
         } catch ( IOException e) {
-            throw FSTUtil.rethrow(e);
+            FSTUtil.<RuntimeException>rethrow(e);
         }
     }
 
@@ -446,7 +558,7 @@ public class FSTStreamEncoder implements FSTEncoder {
         try {
             clnames.encodeClass(this, clInf);
         } catch ( IOException e) {
-            throw FSTUtil.rethrow(e);
+            FSTUtil.<RuntimeException>rethrow(e);
         }
     }
     
@@ -519,6 +631,20 @@ public class FSTStreamEncoder implements FSTEncoder {
     @Override
     public boolean isByteArrayBased() {
         return true;
+    }
+
+    @Override
+    public void writeArrayEnd() {
+
+    }
+
+    @Override
+    public void writeFieldsEnd(FSTClazzInfo serializationInfo) {
+    }
+
+    @Override
+    public FSTConfiguration getConf() {
+        return conf;
     }
 
 }

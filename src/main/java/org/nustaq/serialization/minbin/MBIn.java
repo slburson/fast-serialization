@@ -41,10 +41,16 @@ public class MBIn {
     }
 
     public byte readIn() {
+        if ( pos >= bytez.length ) {
+            return MinBin.END;
+        }
         return bytez[pos++];
     }
 
     public byte peekIn() {
+        if ( pos >= bytez.length ) {
+            return MinBin.END;
+        }
         return bytez[pos];
     }
 
@@ -197,5 +203,9 @@ public class MBIn {
 
     public void reset() {
         setBuffer(bytez,count);
+    }
+
+    public int getCount() {
+        return count;
     }
 }

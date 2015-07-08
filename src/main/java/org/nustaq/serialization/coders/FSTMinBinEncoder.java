@@ -17,13 +17,10 @@ package org.nustaq.serialization.coders;
 
 import org.nustaq.serialization.*;
 import org.nustaq.serialization.minbin.MBOut;
-import org.nustaq.serialization.minbin.MBPrinter;
 import org.nustaq.serialization.minbin.MinBin;
 
 import java.io.*;
 import java.lang.reflect.Array;
-import java.util.ArrayList;
-import java.util.HashMap;
 
 /**
  * Date: 30.03.2014
@@ -45,6 +42,11 @@ public class FSTMinBinEncoder implements FSTEncoder {
     @Override
     public void writeRawBytes(byte[] bufferedName, int off, int length) throws IOException {
         out.writeArray(bufferedName, off, length);
+    }
+
+    @Override
+    public void setConf(FSTConfiguration conf) {
+        this.conf = conf;
     }
 
     /**
@@ -193,7 +195,7 @@ public class FSTMinBinEncoder implements FSTEncoder {
 
     @Override
     public void writeAttributeName(FSTClazzInfo.FSTFieldInfo subInfo) {
-        byte[] bufferedName = subInfo.getBufferedName();
+        byte[] bufferedName = (byte[]) subInfo.getBufferedName();
         if ( bufferedName != null ) {
             out.writeRaw(bufferedName,0,bufferedName.length);
         } else {
@@ -210,7 +212,7 @@ public class FSTMinBinEncoder implements FSTEncoder {
     }
     
     @Override
-    public boolean writeTag(byte tag, Object infoOrObject, long somValue, Object toWrite) throws IOException {
+    public boolean writeTag(byte tag, Object infoOrObject, long somValue, Object toWrite, FSTObjectOutput oout) throws IOException {
         switch (tag) {
             case FSTObjectOutput.HANDLE:
                 out.writeTagHeader(MinBin.HANDLE);
@@ -222,6 +224,9 @@ public class FSTMinBinEncoder implements FSTEncoder {
             case FSTObjectOutput.TYPED:
             case FSTObjectOutput.OBJECT:
                 FSTClazzInfo clzInfo = (FSTClazzInfo) infoOrObject;
+                if (clzInfo.useCompatibleMode() && clzInfo.getSer() == null ) {
+                    throw new RuntimeException("Unsupported backward compatibility mode for class '"+clzInfo.getClazz().getName()+"'. Pls register a Custom Serializer to fix");
+                }
                 if (clzInfo.getClazz() == String.class )
                     break;
                 if (clzInfo.getClazz() == Double.class )
@@ -306,7 +311,7 @@ public class FSTMinBinEncoder implements FSTEncoder {
                 if (!isEnumClass) {
                     // weird stuff ..
                     while (c != null && !c.isEnum()) {
-                        c = toWrite.getClass().getEnclosingClass();
+                        c = toWrite.getClass().getSuperclass();
                     }
                     if (c == null) {
                         throw new RuntimeException("Can't handle this enum: " + toWrite.getClass());
@@ -345,6 +350,7 @@ public class FSTMinBinEncoder implements FSTEncoder {
         return conf.getCPNameForClass(clz);
     }
 
+    @Override
     public void externalEnd(FSTClazzInfo clz) {
         if ( clz == null ||
              clz.isExternalizable() ||
@@ -357,87 +363,6 @@ public class FSTMinBinEncoder implements FSTEncoder {
     @Override
     public boolean isWritingAttributes() {
         return true;
-    }
-
-
-    /**
-     * Created with IntelliJ IDEA.
-     * User: ruedi
-     * Date: 12.11.12
-     * Time: 03:13
-     * To change this template use File | Settings | File Templates.
-     */
-    public static class Test implements Externalizable, Serializable {
-
-        static String staticString = "Should not serialize this";
-        final static String finalStaticString = "Should not serialize this. Should not serialize this. Should not serialize this. Should not serialize this. Should not serialize this.";
-
-        public static Test[] getArray(int siz) {
-            Test[] instance = new Test[siz];
-            for (int i = 0; i < instance.length; i++) {
-                instance[i] = new Test(i);
-            }
-            return instance;
-        }
-
-        public Test()
-        {
-        }
-
-        public Test(int index) {
-            // avoid benchmarking identity references instead of StringPerf
-            str = "R.Moeller"+index;
-            str1 = "R.Moeller1"+index;
-        }
-
-        private String str;
-        private String str1;
-        private boolean b0 = true;
-        private boolean b1 = false;
-        private boolean b2 = true;
-        private int test1 = 123456;
-        private int test2 = 234234;
-        private int test3 = 456456;
-        private int test4 = -234234344;
-        private int test5 = -1;
-        private int test6 = 0;
-        private long l1 = -38457359987788345l;
-        private long l2 = 0l;
-        private double d = 122.33;
-
-        public void writeExternal(ObjectOutput out) throws IOException {
-            out.writeUTF(str);
-            out.writeUTF(str1);
-            out.writeBoolean(b0);
-            out.writeBoolean(b1);
-            out.writeBoolean(b2);
-            out.writeInt(test1);
-            out.writeInt(test2);
-            out.writeInt(test3);
-            out.writeInt(test4);
-            out.writeInt(test5);
-            out.writeInt(test6);
-            out.writeLong(l1);
-            out.writeLong(l2);
-            out.writeDouble(d);
-        }
-
-        public void readExternal(ObjectInput in) throws IOException, ClassNotFoundException {
-            str = in.readUTF();
-            str1 = in.readUTF();
-            b0 = in.readBoolean();
-            b1 = in.readBoolean();
-            b2 = in.readBoolean();
-            test1 = in.readInt();
-            test2 = in.readInt();
-            test3 = in.readInt();
-            test4 = in.readInt();
-            test5 = in.readInt();
-            test6 = in.readInt();
-            l1 = in.readLong();
-            l2 = in.readLong();
-            d = in.readDouble();
-        }
     }
 
     public boolean isPrimitiveArray(Object array, Class<?> componentType) {
@@ -456,6 +381,21 @@ public class FSTMinBinEncoder implements FSTEncoder {
     @Override
     public boolean isByteArrayBased() {
         return true;
+    }
+
+    @Override
+    public void writeArrayEnd() {
+
+    }
+
+    @Override
+    public void writeFieldsEnd(FSTClazzInfo serializationInfo) {
+
+    }
+
+    @Override
+    public FSTConfiguration getConf() {
+        return conf;
     }
 
 }

@@ -23,6 +23,7 @@ import java.io.InputStream;
  */
 public interface FSTDecoder {
 
+    void setConf( FSTConfiguration conf );
     String readStringUTF() throws IOException;
     String readStringAsc() throws IOException;
     Object readFPrimitiveArray(Object array, Class componentType, int len);
@@ -31,6 +32,7 @@ public interface FSTDecoder {
     double readFDouble() throws IOException;
     float readFFloat() throws IOException;
     byte readFByte() throws IOException;
+    int readIntByte() throws IOException;
     long readFLong() throws IOException;
     char readFChar() throws IOException;
     short readFShort() throws IOException;
@@ -40,7 +42,7 @@ public interface FSTDecoder {
     int getInputPos();
     void moveTo(int position);
     void setInputStream(InputStream in);
-    void ensureReadAhead(int bytes);
+    int ensureReadAhead(int bytes); // might signal eof by returning -1, depends on decoder impl though
 
     void reset();
     void resetToCopyOf(byte[] bytes, int off, int len);
@@ -65,7 +67,8 @@ public interface FSTDecoder {
 
     void consumeEndMarker();
 
-    Class readArrayHeader() throws IOException, ClassNotFoundException, Exception;
+    // returns class or directly read array
+    Object readArrayHeader() throws IOException, ClassNotFoundException, Exception;
 
     // read end maker and consume, if no endmarker found do nothing
     void readExternalEnd();
@@ -73,5 +76,33 @@ public interface FSTDecoder {
     boolean isEndMarker(String s);
 
     int readVersionTag() throws IOException;
+
     void pushBack(int bytes);
+
+    // clashes with read end marker, however avoid breaking minbin, so new methods for JSONDe/Encoding
+    // clzSerInfo can be null
+    void readArrayEnd(FSTClazzInfo clzSerInfo);
+
+    void readObjectEnd();
+
+    Object coerceElement(Class arrType, Object value);
+
+    /**
+     * @return a value > 0 if more bytes are available
+     */
+    int available();
+
+    /**
+     * return wether current stream is reading an object or sequence currently
+     * makes sense for MinBin and JSon only, only Json serializer actually has implemented it
+     * @return
+     */
+    boolean inArray();
+
+    /**
+     * quirks for json unknown decoding. Need a hook to set original classname
+     *
+     * @param newObj
+     */
+    void startFieldReading(Object newObj);
 }

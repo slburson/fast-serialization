@@ -17,10 +17,7 @@ package org.nustaq.serialization.coders;
 
 import org.nustaq.offheap.bytez.BasicBytez;
 import org.nustaq.offheap.bytez.onheap.HeapBytez;
-import org.nustaq.serialization.FSTClazzInfo;
-import org.nustaq.serialization.FSTClazzNameRegistry;
-import org.nustaq.serialization.FSTConfiguration;
-import org.nustaq.serialization.FSTEncoder;
+import org.nustaq.serialization.*;
 import org.nustaq.serialization.simpleapi.FSTBufferTooSmallException;
 import org.nustaq.serialization.util.FSTUtil;
 
@@ -36,7 +33,7 @@ import java.io.OutputStream;
  */
 public class FSTBytezEncoder implements FSTEncoder {
 
-    private final FSTConfiguration conf;
+    private FSTConfiguration conf;
 
     private FSTClazzNameRegistry clnames;
     private BasicBytez buffout;
@@ -52,10 +49,15 @@ public class FSTBytezEncoder implements FSTEncoder {
         buffout = base;
         clnames = (FSTClazzNameRegistry) conf.getCachedObject(FSTClazzNameRegistry.class);
         if ( clnames == null ) {
-            clnames = new FSTClazzNameRegistry(conf.getClassRegistry(), conf);
+            clnames = new FSTClazzNameRegistry(conf.getClassRegistry());
         } else {
             clnames.clear();
         }
+    }
+
+    @Override
+    public void setConf(FSTConfiguration conf) {
+        this.conf = conf;
     }
 
     void writeFBooleanArr(boolean[] arr, int off, int len) throws IOException {
@@ -181,7 +183,7 @@ public class FSTBytezEncoder implements FSTEncoder {
 
     }
 
-    public boolean writeTag(byte tag, Object info, long somValue, Object toWrite) throws IOException {
+    public boolean writeTag(byte tag, Object info, long somValue, Object toWrite, FSTObjectOutput oout) throws IOException {
         writeFByte(tag);
         return false;
     }
@@ -257,7 +259,7 @@ public class FSTBytezEncoder implements FSTEncoder {
         try {
             ensureFree( position+4);
         } catch (IOException e) {
-            throw FSTUtil.rethrow(e);
+            FSTUtil.<RuntimeException>rethrow(e);
         }
         buffout.putInt(position,v);
     }
@@ -325,7 +327,7 @@ public class FSTBytezEncoder implements FSTEncoder {
     }
 
     public void registerClass(Class possible) {
-        clnames.registerClass(possible);
+        clnames.registerClass(possible,conf);
     }
 
     @Override
@@ -333,7 +335,7 @@ public class FSTBytezEncoder implements FSTEncoder {
         try {
             clnames.encodeClass(this,cl);
         } catch ( IOException e) {
-            throw FSTUtil.rethrow(e);
+            FSTUtil.<RuntimeException>rethrow(e);
         }
     }
 
@@ -342,7 +344,7 @@ public class FSTBytezEncoder implements FSTEncoder {
         try {
             clnames.encodeClass(this, clInf);
         } catch ( IOException e) {
-            throw FSTUtil.rethrow(e);
+            FSTUtil.<RuntimeException>rethrow(e);
         }
     }
 
@@ -395,6 +397,21 @@ public class FSTBytezEncoder implements FSTEncoder {
     @Override
     public boolean isByteArrayBased() {
         return false || isPlainBAAccessible();
+    }
+
+    @Override
+    public void writeArrayEnd() {
+
+    }
+
+    @Override
+    public void writeFieldsEnd(FSTClazzInfo serializationInfo) {
+
+    }
+
+    @Override
+    public FSTConfiguration getConf() {
+        return conf;
     }
 
 }

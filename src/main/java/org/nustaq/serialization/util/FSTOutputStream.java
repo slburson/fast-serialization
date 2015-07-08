@@ -41,7 +41,7 @@ public final class FSTOutputStream extends OutputStream {
     private int off;
 
     public FSTOutputStream(OutputStream out) {
-        this(32000, out);
+        this(4000, out);
     }
 
     public FSTOutputStream(int size, OutputStream out) {
@@ -143,7 +143,7 @@ public final class FSTOutputStream extends OutputStream {
             off = pos;
             reset();
         }
-        if (outstream != this)
+        if (outstream != this && outstream != null)
             outstream.flush();
     }
 

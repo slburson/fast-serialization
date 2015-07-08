@@ -21,6 +21,8 @@ import org.nustaq.offheap.bytez.malloc.MallocBytez;
 import org.nustaq.serialization.util.FSTUtil;
 import sun.misc.Unsafe;
 
+import java.util.Arrays;
+
 /**
  * Date: 16.11.13
  * Time: 12:41
@@ -28,7 +30,8 @@ import sun.misc.Unsafe;
  */
 
 /**
- * byte array abstraction based on heap byte arrays
+ * byte array abstraction based on heap byte arrays. FIXME: Should be moved to ordinary safe access as it really seems not to make
+ * a big difference.
  */
 public class HeapBytez implements Bytez {
     static Unsafe unsafe = FSTUtil.getUnsafe();
@@ -58,6 +61,9 @@ public class HeapBytez implements Bytez {
         this(base,0);
     }
 
+    public HeapBytez(int size) {
+        this(new byte[size],0);
+    }
     public HeapBytez(byte[] base, long offIndex) {
         this(base,offIndex, base.length-offIndex);
     }
@@ -291,7 +297,7 @@ public class HeapBytez implements Bytez {
     }
 
     @Override
-    public Bytez newInstance(long size) {
+    public BasicBytez newInstance(long size) {
         return new HeapBytez(new byte[(int) size]);
     }
 
@@ -444,4 +450,12 @@ public class HeapBytez implements Bytez {
         return off-byteoff;
     }
 
+    @Override
+    public String toString() {
+        return "HeapBytez{" +
+                "base=" + base +
+                ", off=" + off +
+                ", len=" + len +
+                '}';
+    }
 }

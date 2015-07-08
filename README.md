@@ -1,18 +1,26 @@
 fast-serialization
 ==================
 
-* 100% JDK Serialization compatible drop-in replacement (Ok, might be 99% ..).
+* up to 10 times faster 100% JDK Serialization compatible drop-in replacement (Ok, might be 99% ..)
+* Android compatible since version >= 2.17 (use ```FSTConfiguration.createAndroidConfiguration()``` both on server and client side. The configuration object has to be passed into FSTObjectIn/Output constructors)
 * OffHeap Maps, Persistent OffHeap maps
 * FSTStructs is very similar to IBM's packed objects. Difference is: You can run it with Oracle JDK today.
-* should be Android compatible since version >= 2.17
+* optionally en/decode any Serializable object graph to JSON (incl. shared references) (since 2.29) for interop
 * Apache 2.0 license since 2.17
 
+###Docs:
 
-Project Page http://ruedigermoeller.github.io/fast-serialization/  (out of pure childishness)
+[Fast JDK-compatible Serialization](https://github.com/RuedigerMoeller/fast-serialization/wiki/Serialization)
 
-###[For serialization: Read at least first chapter !](https://github.com/RuedigerMoeller/fast-serialization/wiki/Serialization)
+[Json Serialization](https://github.com/RuedigerMoeller/fast-serialization/wiki/JSON-serialization)
 
-###[Full Documentation](https://github.com/RuedigerMoeller/fast-serialization/wiki)
+[OffHeap + Persistent Maps](https://github.com/RuedigerMoeller/fast-serialization/wiki/Off-Heap-Maps,-Persistent-Maps)
+
+[MinBin cross platform binary format](https://github.com/RuedigerMoeller/fast-serialization/wiki/MinBin)
+
+[Kson: a JSon extension](https://github.com/RuedigerMoeller/fast-serialization/wiki/KSon)
+
+[Struct Emulation](https://github.com/RuedigerMoeller/fast-serialization/wiki/Structs) (currently not covered by tests)
 
 ###mvn
 
@@ -23,11 +31,11 @@ Project Page http://ruedigermoeller.github.io/fast-serialization/  (out of pure 
 <dependency>
     <groupId>de.ruedigermoeller</groupId>
     <artifactId>fst</artifactId>
-    <version>2.23</version>
+    <version>2.33</version>
 </dependency>
 ```
 
-Older version (slightly faster, different package name, 1.6 compatible ..). Fixes are not backported anymore, however marked as "needs backport" in issue tracker
+Older version (different package name, 1.6 compatible ..). Fixes are not backported anymore, unsupported.
 ```.xml
 <dependency>
     <groupId>de.ruedigermoeller</groupId>
@@ -39,7 +47,7 @@ Older version (slightly faster, different package name, 1.6 compatible ..). Fixe
 ###how to build 
 
 * master contains dev branch/trunk.
-* 1.x contains old version (still maintained)
+* 1.x contains old version
 * The maven build should work out of the box and reproduces the artifact hosted on maven.org
 * To use the gradle build, you need to configure the proxy server in settings.properties (or just set empty if you do not sit behind a proxy).
 

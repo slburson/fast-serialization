@@ -1,9 +1,7 @@
 package ser;
 
 import com.cedarsoftware.util.DeepEquals;
-import org.nustaq.serialization.FSTConfiguration;
-import org.nustaq.serialization.FSTObjectInput;
-import org.nustaq.serialization.FSTObjectOutput;
+import org.nustaq.serialization.*;
 import org.junit.Test;
 import org.nustaq.serialization.annotations.Version;
 
@@ -43,8 +41,9 @@ public class BasicFSTTest {
     
     @org.junit.Before
     public void setUp() throws Exception {
-        out = new FSTObjectOutput();
-        in = new FSTObjectInput();
+        FSTObjectRegistry.POS_MAP_SIZE = 1;
+        out = new FSTObjectOutput(getTestConfiguration());
+        in = new FSTObjectInput(getTestConfiguration());
     }
 
     public static class Primitives implements Serializable {
@@ -97,7 +96,7 @@ public class BasicFSTTest {
         double aDouble[] = { -35435345.34534f,3948573945.34534f,3.34534f,4.34534f,-66.34534f,-127.34534f,-128.34534f };
         Object aRef = aLong0;
 
-//        Object _aBoolean = new boolean[]{true,false};
+        Object _aBoolean = new boolean[]{true,false};
         Object _aByte = new byte[]{ -13,34, 127,3,23,5,0,11 };
         Object _aShort0 = new short[]{ -13345,345,25645,23,-424};
         Object _aChar0 = new char[]{ 35345,2,3,345,345,345,34566};
@@ -162,13 +161,17 @@ public class BasicFSTTest {
         Object _aDouble1 = Double.MIN_VALUE;
         Double _aDouble2 = Double.MAX_VALUE;
         Double _aDouble2a[] = {-88.0,Double.MAX_VALUE};
+        Empty empty = new Empty();
+    }
+
+    static class Empty implements Serializable {
     }
 
     static class Bl implements Serializable {
         boolean b1,b2,b3;
     }
     
-    static class Strings implements Serializable {
+    public static class Strings implements Serializable {
         String empty = "";
         String nil = null;
         String asc = "qpowerijdsfjgkdfg3409589275458965412354doigfoi-.,#+";
@@ -323,6 +326,16 @@ public class BasicFSTTest {
     }
 
     @Test
+    public void testWeirdArray() throws Exception {
+        WeirdArrays obj = new WeirdArrays();
+        out.writeObject(obj);
+        in.resetForReuseUseArray(lastBinary = out.getCopyOfWrittenBuffer());
+        out.flush();
+        WeirdArrays res = (WeirdArrays) in.readObject();
+        assertTrue(DeepEquals.deepEquals(obj,res));
+    }
+
+    @Test
     public void testSimpleCollections() throws Exception {
         HashMap obj = new HashMap();
         ArrayList li = new ArrayList(); li.add("zero"); li.add(null); li.add("second");
@@ -340,6 +353,16 @@ public class BasicFSTTest {
         assertTrue(res.get("x") == res.get("y"));
         assertTrue(DeepEquals.deepEquals(obj,res));
     }
+
+//    @Test
+//    public void testUTFString() throws Exception {
+//        Play obj = new Play();
+//        out.writeObject(obj);
+//        in.resetForReuseUseArray(out.getCopyOfWrittenBuffer());
+//        out.flush();
+//        Object res = in.readObject();
+//        assertTrue(DeepEquals.deepEquals(obj,res));
+//    }
 
 
     @Test
@@ -381,9 +404,17 @@ public class BasicFSTTest {
         out.writeObject(obj);
         in.resetForReuseUseArray(out.getCopyOfWrittenBuffer());
         out.flush();
-        Object res = in.readObject();
-        // note: false alarm with 1.7_71
-        assertTrue(DeepEquals.deepEquals(obj,res));
+        Basics res = (Basics) in.readObject();
+
+        // note: fix false alarm with 1.7_71 + newer 1.8. (because stacktrace not serialized ofc)
+        Object[] exceptions1 = res.exceptions;
+        Object[] exceptions2 = obj.exceptions;
+        res.exceptions = obj.exceptions = null;
+
+        for (int i = 1; i < exceptions1.length; i++) {
+            assertTrue( exceptions1[i].getClass() == exceptions2[i].getClass() );
+        }
+        assertTrue(DeepEquals.deepEquals(obj, res));
     }
 
     protected byte[] lastBinary;
@@ -555,6 +586,57 @@ public class BasicFSTTest {
         assertTrue(res.bytes1[547] == 1 && res.bytes2[347] == 2);
 
 
+    }
+
+    static class T implements Serializable {
+        String s;  int i;  T1 t1;
+        public T() {}
+        public T(int dummy) { s = "pok"; i = 100; t1 = new T1(); }
+    }
+
+    static class T1 implements Serializable {
+        String s;  int i;
+        public T1() {}
+        public T1(int dummy) { s = "pok1"; i = 101; }
+    }
+
+    public static class TSer extends FSTBasicObjectSerializer {
+        @Override
+        public void writeObject(FSTObjectOutput out, Object toWrite, FSTClazzInfo clzInfo, FSTClazzInfo.FSTFieldInfo referencedBy, int streamPosition) throws IOException {
+            out.defaultWriteObject(toWrite,clzInfo);
+        }
+
+        @Override
+        public Object instantiate(Class objectClass, FSTObjectInput in, FSTClazzInfo serializationInfo, FSTClazzInfo.FSTFieldInfo referencee, int streamPosition) throws IOException, ClassNotFoundException, InstantiationException, IllegalAccessException {
+            T t = new T();
+            in.defaultReadObject(referencee,serializationInfo,t);
+            return t;
+        }
+    }
+
+    public static class T1Ser extends FSTBasicObjectSerializer {
+        @Override
+        public void writeObject(FSTObjectOutput out, Object toWrite, FSTClazzInfo clzInfo, FSTClazzInfo.FSTFieldInfo referencedBy, int streamPosition) throws IOException {
+            out.defaultWriteObject(toWrite, clzInfo);
+        }
+
+        @Override
+        public Object instantiate(Class objectClass, FSTObjectInput in, FSTClazzInfo serializationInfo, FSTClazzInfo.FSTFieldInfo referencee, int streamPosition) throws IOException, ClassNotFoundException, InstantiationException, IllegalAccessException {
+            T1 t = new T1();
+            in.defaultReadObject(referencee,serializationInfo,t);
+            return t;
+        }
+    }
+
+    @Test
+    public void testNestedSerializers() {
+        FSTConfiguration conf = getTestConfiguration();
+        conf.registerSerializer(T.class, new TSer(), true);
+        conf.registerSerializer(T1.class, new T1Ser(), true);
+        Object p = new T(1);
+        byte[] bytes = conf.asByteArray(p);
+        Object deser = conf.asObject(bytes);
+        assertTrue(DeepEquals.deepEquals(p,deser));
     }
 
     @org.junit.After

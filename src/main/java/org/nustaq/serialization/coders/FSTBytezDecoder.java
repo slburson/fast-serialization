@@ -15,22 +15,16 @@
  */
 package org.nustaq.serialization.coders;
 
-import org.nustaq.offheap.bytez.BasicBytez;
-import org.nustaq.offheap.bytez.Bytez;
-import org.nustaq.offheap.bytez.onheap.HeapBytez;
+import java.io.*;
+import org.nustaq.offheap.bytez.*;
+import org.nustaq.offheap.bytez.onheap.*;
 import org.nustaq.serialization.*;
-import org.nustaq.serialization.simpleapi.FSTBufferTooSmallException;
-import org.nustaq.serialization.util.FSTInputStream;
-import org.nustaq.serialization.util.FSTUtil;
-
-import java.io.ByteArrayInputStream;
-import java.io.IOException;
-import java.io.InputStream;
+import org.nustaq.serialization.util.*;
 
 /**
  * Created by ruedi on 09.11.2014.
  *
- * no value compression is applied. uses unsafe to read values from memory
+ * uses unsafe to read values directly from memory instead an inputstream. no value compression is applied.
  *
  */
 public class FSTBytezDecoder  implements FSTDecoder {
@@ -50,30 +44,36 @@ public class FSTBytezDecoder  implements FSTDecoder {
         this.input = input;
     }
 
+    @Override
+    public void setConf(FSTConfiguration conf) {
+        this.conf = conf;
+    }
+
     public FSTBytezDecoder(FSTConfiguration conf) {
         this.conf = conf;
         clnames = (FSTClazzNameRegistry) conf.getCachedObject(FSTClazzNameRegistry.class);
         if (clnames == null) {
-            clnames = new FSTClazzNameRegistry(conf.getClassRegistry(), conf);
+            clnames = new FSTClazzNameRegistry(conf.getClassRegistry());
         } else {
             clnames.clear();
         }
     }
 
     byte tmp[];
-    public void ensureReadAhead(int bytes) {
+    public int ensureReadAhead(int bytes) {
         if ( inputStream != null ) {
             if ( pos+bytes > readUntil ) {
-                readNextInputChunk(bytes);
+                return readNextInputChunk(bytes);
             }
         } else if ( pos+bytes > input.length() ) {
-//            throw FSTBufferTooSmallException.Instance;
+            return -1;
         }
+        return 0;
     }
 
-    protected void readNextInputChunk(int bytes) {
+    protected int readNextInputChunk(int bytes) {
         try {
-            int toRead = Math.max(Integer.MAX_VALUE, bytes);
+            int toRead = Math.min(Integer.MAX_VALUE - 5, bytes);
             if ( inputStream instanceof ByteArrayInputStream ) {
                 toRead = Math.min(((ByteArrayInputStream) inputStream).available(),toRead);
             }
@@ -89,10 +89,14 @@ public class FSTBytezDecoder  implements FSTDecoder {
                 }
                 input.set(pos,tmp,0,read);
                 readUntil = pos+read;
-            }
+                return read;
+            } else if ( read == -1 )
+                return -1;
+            // fixme: should loop in case read == 0
         } catch (IOException e) {
-            throw FSTUtil.rethrow(e);
+            FSTUtil.<RuntimeException>rethrow(e);
         }
+        return 0;
     }
 
     char chBufS[];
@@ -238,6 +242,14 @@ public class FSTBytezDecoder  implements FSTDecoder {
     }
 
     @Override
+    public int readIntByte() throws IOException {
+        final int res = ensureReadAhead(1);
+        if ( res == -1 )
+            return -1;
+        return input.get(pos++) & 0xff;
+    }
+
+    @Override
     public long readFLong() throws IOException {
         return readPlainLong();
     }
@@ -334,7 +346,7 @@ public class FSTBytezDecoder  implements FSTDecoder {
         {
             input = (HeapBytez) input.newInstance(len);
         }
-        input.set(0,bytes,off,len);
+        input.set(0, bytes, off, len);
         pos = 0;
         clnames.clear();
     }
@@ -359,17 +371,17 @@ public class FSTBytezDecoder  implements FSTDecoder {
 
     @Override
     public FSTClazzInfo readClass() throws IOException, ClassNotFoundException {
-        return clnames.decodeClass(this);
+        return clnames.decodeClass(this,conf);
     }
 
     @Override
     public Class classForName(String name) throws ClassNotFoundException {
-        return clnames.classForName(name);
+        return clnames.classForName(name,conf);
     }
 
     @Override
     public void registerClass(Class possible) {
-        clnames.registerClass(possible);
+        clnames.registerClass(possible,conf);
     }
 
     @Override
@@ -386,7 +398,7 @@ public class FSTBytezDecoder  implements FSTDecoder {
     public void readPlainBytes(byte[] b, int off, int len) {
         ensureReadAhead(len);
 //        System.arraycopy(input.buf,input.pos,b,off,len);
-        input.set(pos, b, off, len);
+        input.getArr(pos, b, off, len);
         pos += len;
     }
 
@@ -433,6 +445,32 @@ public class FSTBytezDecoder  implements FSTDecoder {
     @Override
     public void pushBack(int bytes) {
         pos -= bytes;
+    }
+
+    @Override
+    public void readArrayEnd(FSTClazzInfo clzSerInfo) {}
+
+    @Override
+    public void readObjectEnd() {}
+
+    @Override
+    public Object coerceElement(Class arrType, Object value) {
+        return value;
+    }
+
+    @Override
+    public int available() {
+        return (int) (input.length()-pos);
+    }
+
+    @Override
+    public boolean inArray() {
+        return false;
+    }
+
+    @Override
+    public void startFieldReading(Object newObj) {
+
     }
 
 }

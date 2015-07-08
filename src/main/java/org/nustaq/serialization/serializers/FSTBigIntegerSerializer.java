@@ -25,11 +25,12 @@ public class FSTBigIntegerSerializer  extends FSTBasicObjectSerializer {
 
     @Override
     public Object instantiate(Class objectClass, FSTObjectInput in, FSTClazzInfo serializationInfo, FSTClazzInfo.FSTFieldInfo referencee,
-                              int streamPositioin) throws IOException, ClassNotFoundException, InstantiationException, IllegalAccessException {
-        byte[] buf = new byte[in.readInt()];
+                              int streamPosition) throws Exception {
+        int len = in.readInt();
+        byte[] buf = new byte[len];
         in.read(buf);
         BigInteger bigInteger = new BigInteger(buf);
-        in.registerObject(bigInteger,streamPositioin,serializationInfo,referencee);
+        in.registerObject(bigInteger,streamPosition,serializationInfo,referencee);
         return bigInteger;
     }
 }

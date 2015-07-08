@@ -15,11 +15,8 @@
  */
 package org.nustaq.serialization.serializers;
 
+import org.nustaq.serialization.*;
 import org.nustaq.serialization.util.FSTUtil;
-import org.nustaq.serialization.FSTBasicObjectSerializer;
-import org.nustaq.serialization.FSTClazzInfo;
-import org.nustaq.serialization.FSTObjectInput;
-import org.nustaq.serialization.FSTObjectOutput;
 
 import java.io.IOException;
 import java.util.*;
@@ -63,7 +60,7 @@ public class FSTCollectionSerializer extends FSTBasicObjectSerializer {
     }
 
     @Override
-    public Object instantiate(Class objectClass, FSTObjectInput in, FSTClazzInfo serializationInfo, FSTClazzInfo.FSTFieldInfo referencee, int streamPositioin) throws IOException, ClassNotFoundException, InstantiationException, IllegalAccessException {
+    public Object instantiate(Class objectClass, FSTObjectInput in, FSTClazzInfo serializationInfo, FSTClazzInfo.FSTFieldInfo referencee, int streamPosition) throws Exception {
         try {
             Object res = null;
             int len = in.readInt();
@@ -79,9 +76,14 @@ public class FSTCollectionSerializer extends FSTBasicObjectSerializer {
             if ( objectClass == LinkedList.class ) {
                 res = new LinkedList();
             } else {
-                res = objectClass.newInstance();
+                if ( AbstractList.class.isAssignableFrom(objectClass) && objectClass.getName().startsWith( "java.util.Arrays" ) ) {
+                    // some collections produced by JDK are not properly instantiable (e.g. Arrays.ArrayList), fall back to arraylist then
+                    res = new ArrayList<>();
+                } else {
+                    res = objectClass.newInstance();
+                }
             }
-            in.registerObject(res, streamPositioin,serializationInfo, referencee);
+            in.registerObject(res, streamPosition,serializationInfo, referencee);
             Collection col = (Collection)res;
             if ( col instanceof ArrayList ) {
                 ((ArrayList)col).ensureCapacity(len);
@@ -92,7 +94,8 @@ public class FSTCollectionSerializer extends FSTBasicObjectSerializer {
             }
             return res;
         } catch (Throwable th) {
-            throw FSTUtil.rethrow(th);
+            FSTUtil.<RuntimeException>rethrow(th);
         }
+        return null;
     }
 }

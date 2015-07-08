@@ -36,6 +36,7 @@ public class KsonDeserializer {
     protected KsonCharInput in;
     protected KsonTypeMapper mapper;
     protected Stack<ParseStep> stack;
+    protected boolean supportJSon = true;
 
     private KsonArgTypesResolver argTypesRessolver;
 
@@ -72,6 +73,15 @@ public class KsonDeserializer {
         }
     }
 
+    public boolean isSupportJSon() {
+        return supportJSon;
+    }
+
+    public KsonDeserializer supportJSon(boolean supportJSon) {
+        this.supportJSon = supportJSon;
+        return this;
+    }
+
     public void skipWS() {
         int ch = in.readChar();
         while (ch >= 0 && Character.isWhitespace(ch)) {
@@ -88,7 +98,14 @@ public class KsonDeserializer {
     }
 
     public Object readObject(Class expect, Class genericKeyType, Class genericValueType) throws Exception {
+        if ( expect == Object.class )
+            expect = null;
+        if ( genericKeyType == Object.class )
+            genericKeyType = null;
+        if ( genericValueType == Object.class )
+            genericValueType = null;
         try {
+            int position = in.position();
             skipWS();
             if (in.isEof())
                 return null;
@@ -99,29 +116,34 @@ public class KsonDeserializer {
             }
             skipWS();
             Class mappedClass = null;
+            if ( supportJSon && "".equals(type)) {
+                String tp = scanJSonType();
+                if ( tp != null && mapper.getType(tp) != null ) {
+                    type = tp;
+                }
+            }
             if ("".equals(type)) {
                 mappedClass = expect;
             } else {
                 mappedClass = mapper.getType(type);
             }
             if (mappedClass == null) {
-                if ("".equals(type)) {
-                    // always with json
-                    // => take first attribute as type (see subclass)
-                    final int position = in.position();
-                    String clz = huntType();
-                    if (clz != null)
-                        mappedClass = mapper.getType(clz);
-                    // rewind
-                    in.back(in.position() - position);
-                } else
+                if ( expect != null ) {
+                    mappedClass = expect;
+                } else {
+                    if ( in.position() == position ) {
+                        throw new KsonParseException("could not evaluate type ", in);
+                    }
                     return type; // assume string
+                }
             }
             if (mappedClass == List.class || mappedClass == Collection.class)
                 mappedClass = ArrayList.class;
             if (mappedClass == Map.class)
                 mappedClass = HashMap.class;
-            FSTClazzInfo clInfo = Kson.conf.getCLInfoRegistry().getCLInfo(mappedClass);
+            if (mappedClass == Set.class)
+                mappedClass = HashSet.class;
+            FSTClazzInfo clInfo = Kson.conf.getCLInfoRegistry().getCLInfo(mappedClass, Kson.conf);
             if (DEBUG_STACK) {
                 if ( clInfo != null ) {
                     stack.push(new ParseStep("try reading type " + clInfo.getClazz().getName(), in));
@@ -213,19 +235,36 @@ public class KsonDeserializer {
         }
     }
 
-    /**
-     * guess am object type from raw input stream.
-     *
-     * @return
-     */
-    protected String huntType() {
+    protected String scanJSonType() {
+        int position = in.position();
         skipWS();
         int ch;
         // just scan first sttribute and expect a string value which is taken as mapped class name
-        while ((ch = in.readChar()) != ':' && ch != '}' && ch > 0) {
-        }
-        skipWS();
-        return readString();
+        do {
+            skipWS();
+            ch = in.readChar();
+            if ( ch == '{' ) {
+                skipWS();
+                String key = readString();
+                if ( "_type".equals(key) ) {
+                    skipWS();
+                    if ( in.readChar() != ':' ) {
+                        in.back(in.position()-position);
+                        return null;
+                    }
+                    skipWS();
+                    String res = readString();
+                    in.back(in.position()-position);
+                    return res;
+                } else {
+                    in.back(in.position()-position);
+                    return null;
+                }
+            }
+        } while ( ch != ':' && ch != '}' && ch != '[');
+
+        in.back(in.position()-position);
+        return null;
     }
 
     private String readString() {
@@ -339,6 +378,9 @@ public class KsonDeserializer {
             }
             skipWS();
             index++;
+//            if ( index >= valueType.length ) {
+//                break;
+//            }
         }
         in.readChar(); // consume }
         return result;
@@ -385,12 +427,13 @@ public class KsonDeserializer {
             // string
             return mapper.coerceReading(expected, readString(ch == '"' || ch == '\''));
         } else if (Character.isLetter(ch) || ch == '{' || ch == '[') {
-            if ( ch == '[' /*&& ! isContainer(expected) */&& (expected == null || expected == Object.class || expected.isInterface())) {
+            if ( ch == '[' && ! isContainer(expected) && (expected == null || expected == Object.class || expected.isInterface())) {
                 in.readChar();
                 if ( expected != null &&
                     ! Map.class.isAssignableFrom(expected) &&
                     Collection.class.isAssignableFrom(expected) &&
-                    genericValueType == null ) {
+                    genericValueType == null )
+                {
                     // default vlaueType to keyType for nnon-maps
                     genericValueType = genericKeyType;
                 }

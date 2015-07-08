@@ -27,17 +27,26 @@ import java.io.InputStream;
  */
 public final class FSTInputStream extends InputStream {
 
-    public int chunk_size = 5000;
+    public int chunk_size = 8000;
     public static ThreadLocal<byte[]> cachedBuffer = new ThreadLocal<byte[]>();
     public byte buf[];
     public int pos;
     public int count; // avaiable valid read bytes
     InputStream in;
-    boolean fullyRead = false;
+    boolean fullyRead = false; // true if input source has been read til end
     public boolean byteBacked = false;
 
     public FSTInputStream(InputStream in) {
         initFromStream(in);
+    }
+
+    public void resetForReuse( byte b[], int length ) {
+        reset();
+        count = length;
+        buf = b;
+        pos = 0;
+        byteBacked = true;
+        fullyRead = true;
     }
 
     public void initFromStream(InputStream in) {
@@ -55,11 +64,15 @@ public final class FSTInputStream extends InputStream {
         readNextChunk(in);
     }
 
+    public boolean isFullyRead() {
+        return fullyRead && pos >= count;
+    }
+
     public void readNextChunk(InputStream in) {
         int read;
         try {
             if (buf.length < count + chunk_size) {
-                ensureCapacity(Math.max(buf.length * 2, count + chunk_size));
+                ensureCapacity(Math.max( Math.min(Integer.MAX_VALUE-1,buf.length * 2), count + chunk_size)); // at least grab 5kb
             }
             read = in.read(buf, count, chunk_size);
             if (read > 0) {
@@ -73,7 +86,7 @@ public final class FSTInputStream extends InputStream {
     }
 
     public void ensureCapacity(int siz) {
-        if (buf.length < siz) {
+        if (buf.length < siz && ! fullyRead) {
             byte newBuf[] = new byte[siz];
             System.arraycopy(buf, 0, newBuf, 0, buf.length);
             buf = newBuf;
@@ -106,12 +119,10 @@ public final class FSTInputStream extends InputStream {
     }
 
     public int read(byte b[], int off, int len) {
-        if (fullyRead)
+        if (isFullyRead())
             return -1;
-        while (pos + len >= count) {
+        while (! fullyRead && pos + len >= count) {
             readNextChunk(in);
-            if (fullyRead)
-                break;
         }
         int avail = count - pos;
         if (len > avail) {
@@ -153,7 +164,8 @@ public final class FSTInputStream extends InputStream {
     }
 
     public void close() throws IOException {
-        in.close();
+        if ( in != null )
+            in.close();
     }
 
     public void ensureReadAhead(int bytes) {
